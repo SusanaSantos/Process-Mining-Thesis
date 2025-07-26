@@ -1,0 +1,494 @@
+ #################################################
+ ################## Process Mining ##################
+ #################### bupaR.net #####################
+ #################################################
+ setwd("~/Data mining Master/Tese/R Results")
+ #getwd()
+ #install.packages(c('bupaR', 'eventdataR', 'xesreadR', 'edeaR', 'processmapR', 'processmonitR', 'pm4py'))
+library(readxl); library(bupaR); library(processmapR); library(processmonitR); library(dplyr); library(processanimateR); li￾brary(eventdataR); library(heuristicsmineR); library(pm4py); library(petrinetR); library(daqapo)
+ # pipe operator %>%
+ Book1 <- read_excel("pm.xlsx")
+ # Inspect the structure of the data
+ # str(Book1) or
+ summary(Book1)
+ # To create the event log object
+ invoices <- eventlog(
+ Book1,
+ case_id = "InvoiceID",
+ activity_id = "activity",
+ activity_instance_id = "order",
+ lifecycle_id = "status",
+ timestamp = "date",
+ resource_id = "FTE"
+ )
+ mapping(invoices)
+ # Total number of invoices
+ n_cases(invoices)
+ # Summary of the data
+ summary(invoices)
+ # Show the journey of the first invoice
+ slice(invoices, 1)
+ # Number of distinct activities
+ n_activities(invoices)
+ # The names of the activities
+ activity_labels(invoices)
+ # List of activities
+ # or activity_dashboard(invoices)
+ activities(invoices)
+ # A sequence of activities describes each case. It is called a trace.
+ traces(invoices)
+ # Different number of traces
+ n_traces(invoices)
+ #The percentage coverage of the trace to explore. Default is 20% most (in)frequent
+ trace_explorer(invoices, coverage = 0.80)
+ #Which activities are always done for an invoice and which are rare?
+ #Which activity type occurred in the least number of cases?
+ invoices %>% activity_presence() %>% plot()
+ #####################################################
+ ################ Process Discovery ######################
+ #####################################################
+ ################### Heuristics Miner ####################
+ ######################################################
+ # Dependency graph/matrix
+ freqinvoices <- invoices %>% 
+ filter(`Company code`==1001) %>% 
+filter_trace_frequency(percentage = 0.8)
+ dependency_matrix(freqinvoices) %>% render_dependency_matrix()
+ # Causal graph / Heuristics net
+ causal_net(freqinvoices) %>% render_causal_net()
+ # Efficient precedence matrix
+ m <
+- precedence_matrix_absolute(freqinvoices)
+ as.matrix(m)
+ dependency_matrix(freqinvoices, threshold = 0.8) %>% render_dependency_matrix()
+ causal_net(freqinvoices,threshold = 0.8) %>% render_causal_net()
+ # Convert to Petri net
+ cn <
+- causal_net(freqinvoices, threshold = 0.8
+)
+ pn <
+- as.petrinet(cn)
+ render_PN(pn)
+ #####################################################
+ ##################### Alpha Miner #####################
+ #####################################################
+ discovery_alpha(freqinvoices) 
+-> PN
+ PN %>% str
+ PN$petrinet %>% render_PN()
+ discovery_alpha(freqinvoices, variant = variant_alpha_plus()) 
+-> PN
+ PN$petrinet %>% render_PN()
+ ########################################################
+ #################### Inductive Miner ###################
+########################################################
+ discovery_inductive(freqinvoices, variant = variant_inductive_imdfb()) 
+-> PN
+ PN %>% str
+ PN$petrinet %>% render_PN()
+ #######################################################
+ ################### Direct Follow Graph ###############
+ ########################################################
+ #To visualize processes using a process map.
+ invoices %>% 
+ filter(`Company code`==1001) %>% 
+ filter_trace_frequency(percentage = 0.95) %>%
+ process_map(
+ # type_edges = frequency("relative
+-case"),
+ #type_edges = performance(FUN = median, units = "days")
+ 
+)
+ # process map of median performance in hours
+ invoices %>% 
+ filter(`Company code`==1001) %>% 
+ process_map(type = performance(FUN = median, units = 'hours'))
+ # Select top 20% of cases according to trace frequency
+ happy_path <
+- invoices %>% 
+ filter(`Company code`==1001) %>% 
+ filter_trace_frequency(percentage = 0.2)
+ # Process map of absolute case frequency
+ happy_path %>% 
+ process_map(
+ #type_nodes = frequency("relative
+-case"),
+ type_edges = performance(FUN = median, units = "days")
+ 
+)
+ 
+ happy_path %>% 
+ filter(`Company code`==1001) %>% 
+ throughput_time(units = "days")
+ 
+ invoices %>% 
+ filter(`Company code`==1001) %>% 
+ filter_activity("Invoice date",T)%>% 
+ group_by(InvoiceType)%>% 
+ throughput_time(units = "days")%>% 
+ plot()
+ 
+ # Animate process map
+ invoices %>% 
+ filter(`Company code`==1001) %>% 
+ filter_trace_frequency(percentage = 0.95 ) %>% 
+ animate_process(
+ #mapping = token_aes(color = token_scale("red"))
+)
+
+invoices %>%
+ filter_trace_frequency(percentage = 0.95 ) %>%
+ animate_process( mode = "relative", jitter = 10, legend = "color",
+ mapping = token_aes(color = token_scale("Company code", 
+ scale = "ordinal", 
+range = RColorBrewer::brewer.pal(7, "Paired"))))
+ 
+ # Filter for the 80% of most common activities
+ invoices %>%
+ filter_activity_frequency(percentage = 0.8) %>%
+ process_map(
+ type_nodes = frequency(),
+ type_edges = performance(FUN = median, units = "days")
+ )
+ 
+ #Filtering by activities of the process 
+ invoices %>%
+ filter_trace_frequency(percentage = 0.6) %>%
+ process_map(
+ type_nodes = frequency(),
+ type_edges = performance(median, "days")
+ )
+ 
+ #One anomaly - Invoice date after creation date
+ anomalie <- invoices %>%
+ filter_precedence(
+ # antecedents = "activity that came before",
+ antecedents = "Creation",
+ # consequents = "activity that came after",
+ consequents = "Invoice date",
+ # precedence_type = c("directly_follows", "eventually_follows"),
+ # filter_method = c("all", "one_of", "none"),
+ filter_method = "all",
+ )
+ anomalie$InvoiceID
+ 
+ invoices %>% 
+ filter(`Company code`== 1001) %>% 
+ filter( is.na (CountrySupplier)== F) %>%
+ group_by(CountrySupplier)%>% 
+ throughput_time(units = "days") %>% 
+ plot()
+########################################################
+ ############# Organizational analysis ################
+ ########################################################
+ #who executes the work
+ resource_labels(invoices)
+ #resources frequencies
+ resource_frequency(invoices)
+ #removing blank FTE
+ invoicesFTE<-filter_resource(invoices,NA,reverse = TRUE)
+ resource_labels(invoicesFTE)
+ 
+ invoicesFTE %>% 
+ filter(`Company code`==1001) %>% 
+ filter_resource_frequency(percentage = 0.80) %>%
+ resource_map()
+ 
+ 
+ #The precedence matrix shows the flows from one activity to another 
+ #in a rectangular format. 
+ invoices %>% 
+ filter(`Company code`==1001) %>% 
+ precedence_matrix(type = "relative-antecedent") %>% plot()
+ 
+ invoicesFTE %>% 
+ filter(InvoiceID =="b99cdf0bf63445f99e2b60a9602923b4" ) %>%
+ resource_map(
+ type_edges = performance(FUN = median, units = "days")
+ )
+ 
+ invoices %>% 
+ filter(InvoiceID =="b99cdf0bf63445f99e2b60a9602923b4" ) %>%
+ process_map(
+ type_edges = performance(FUN = median, units = "days")
+ )
+ ########################################################
+ ############### PO and GR analysis #####################
+ ########################################################
+ invoices %>% group_by(InvoiceType) %>%
+ n_cases()
+ # 1. PO and GR 
+ POGR<- invoices %>% 
+ filter(`Company code`==1001) %>% 
+ # filter_activity("Invoice date",T)%>% 
+ filter(GR=="yes" & InvoiceType=="Vend.Inv.with PO")
+ 
+ POGR %>% 
+ process_map(
+ type_nodes = frequency("relative-case"),
+ )
+ 
+ trace_explorer(POGR, coverage = 0.91)
+ 
+ POGR %>%
+ process_map(
+ type_edges = performance(FUN = median, units = "days")
+ )
+ 
+ resource_labels(POGR)
+ #Remove nulls
+ POGRFTE<-filter_resource(POGR,NA,reverse = TRUE) 
+ resources(POGRFTE)
+ POGRFTE %>% 
+ filter_resource_frequency(percentage = 0.80) %>%
+ resource_map()
+ 
+ # 2. PO and no GR
+ POnoGR<- invoices %>%
+ filter(`Company code`==1001) %>% 
+ filter(GR =="no" & InvoiceType=="Vend.Inv.with PO") 
+ 
+ POnoGR %>% 
+ process_map(type_edges = frequency("relative-case"))
+ 
+ trace_explorer(POnoGR, coverage = 0.99)
+ 
+ POnoGR %>%
+ process_map(
+ type_nodes = performance(FUN = median, units = "days")
+ )
+ resource_labels(POnoGR)
+ #Remove nulls
+ POnoGRFTE<-filter_resource(POnoGR,NA,reverse = TRUE) 
+ resources(POnoGRFTE)
+ POnoGRFTE %>% 
+ #filter_resource_frequency(percentage = 0.90) %>%
+ resource_map()
+ 
+ # 3. No PO and GR
+ noPOGR<- invoices %>% 
+ filter(`Company code`==1001) %>% 
+ filter(GR=="yes" & InvoiceType=="Vend.Inv w/o PO") 
+ 
+ noPOGR %>% 
+ process_map(
+ type_nodes = frequency("relative-case")
+ )
+ trace_explorer(noPOGR, coverage = 0.99)
+ noPOGR %>%
+ process_map(
+ type_edges = performance(FUN = median, units = "days")
+ )
+ resource_labels(noPOGR)
+ 
+ #Remove nulls
+ noPOGRFTE<-filter_resource(noPOGR,NA,reverse = TRUE) 
+ resources(noPOGRFTE)
+ noPOGRFTE %>% 
+filter_resource_frequency(percentage = 0.90) %>%
+ resource_map()
+ 
+ # 4. No PO and No GR
+ noPOnoGR <
+-invoices %>% 
+ filter(`Company code`==1001) %>% 
+ filter(GR =="no" & InvoiceType=="Vend.Inv w/o PO") 
+ 
+ noPOnoGR %>% 
+ process_map( type_nodes = frequency("relative
+-case"))
+ 
+ trace_explorer(noPOnoGR, coverage = 1)
+ noPOnoGR %>%
+ process_map(
+ type_edges = performance(FUN = median, units = "days")
+ 
+)
+ 
+ #5. PO 
+ PO <
+- invoices %>% 
+ filter(`Company code`==1001) %>% 
+ filter(InvoiceType=="Vend.Inv.with PO") 
+ 
+ PO %>% 
+ process_map()
+ 
+ trace_explorer(PO, coverage = 0.99)
+ PO %>%
+ process_map(
+ type_edges = performance(FUN = median, units = "days")
+ 
+)
+ resource_labels(PO)
+ #Remove nulls
+ POFTE<
+-filter_resource(PO,NA,reverse = TRUE) 
+ resources(POFTE)
+ POFTE %>% 
+ filter_resource_frequency(percentage = 0.90) %>%
+ resource_map()
+ 
+ #6. No PO 
+ noPO <
+- invoices %>% 
+ filter(`Company code`==1001) %>% 
+ filter(InvoiceType=="Vend.Inv w/o PO") 
+ 
+ noPO %>% 
+ process_map()
+ 
+ trace_explorer(noPO, coverage = 0.99)
+ noPO %>%
+ process_map(
+ type_edges = performance(FUN = median, units = "days")
+ 
+)
+ resource_labels(noPO)
+ #Remove nulls
+ noPOFTE<
+-filter_resource(noPO,NA,reverse = TRUE) 
+ resources(noPOFTE)
+ noPOFTE %>% 
+ filter_resource_frequency(percentage = 0.90) %>%
+ resource_map(
+ type_edges = performance(FUN = median, units = "days")
+ 
+)
+ 
+ POGR %>%
+ filter_activity("Invoice date",T)%>% 
+ throughput_time(units = "days") 
+ POnoGR %>%
+ filter_activity("Invoice date",T)%>% 
+ throughput_time(units = "days") 
+ noPOGR %>%
+ filter_activity("Invoice date",T)%>% 
+ throughput_time(units = "days") 
+ noPOnoGR %>%
+ filter_activity("Invoice date",T)%>% 
+ throughput_time(units = "days") 
+ hip <-invoices %>%
+ mutate(
+ hypothesis = case_when(
+ GR=="yes" & InvoiceType=="Vend.Inv.with PO" ~ "1.POGR",
+ GR=="no" & InvoiceType=="Vend.Inv.with PO" ~"2.POnoGR",
+ GR=="yes" & InvoiceType=="Vend.Inv w/o PO" ~ "3.noPOGR",
+ GR=="no" & InvoiceType=="Vend.Inv w/o PO" ~ "4.noPOnoGR",
+ TRUE ~ "Appropriate"
+ )
+ )
+ hip %>%
+ filter(`Company code`==1001) %>% 
+ filter_activity("Invoice date",T)%>% 
+ filter_activity("Removal",T)%>% 
+ group_by(hypothesis)%>%
+ throughput_time(units = "days") %>% 
+ plot()
+ 
+ ########################################################
+ ########### Rejected / Duplicated #######################
+ ########################################################
+ activities(invoices)
+ # invoices removed
+ Removed <- invoices %>%
+ filter(`Company code`==1001) %>% 
+ filter_activity_presence(activities = 'Removal',
+ method = "all")
+ 
+ #filter_activity_presence(
+ # eventlog,
+ # activities = NULL,
+ # method = c("all", "one_of", "none", "exact", "only"),
+ # reverse = FALSE
+ #)
+ 
+ # Create a performance map
+ Removed%>% 
+ process_map(
+ type_nodes = frequency(),
+ type =performance(mean, "days"),
+ type_edges = performance(mean, "days"))
+ 
+ Duplicated<-invoices%>% 
+ filter(ReasonForFailedValidation =="Duplicate") 
+ 
+ Duplicated %>%
+ process_map(
+ type_nodes = frequency(),
+ type =performance(mean, "days"),
+ type_edges = performance(mean, "days"))
+ 
+ trace_explorer(Removed, coverage = 1)
+ 
+ # first trace
+ Removed %>% 
+ filter_trace(9) %>%
+ filter_activity("Invoice date",reverse=T)%>% 
+ throughput_time(units = "days")
+ # Process map of the invoice eighth trace
+ invoices %>% 
+ filter_activity_presence(activities = 'Removal', method = "all") %>%
+ filter(SupplierCode == '30090000') %>%
+ process_map(
+ type_nodes = frequency(),
+ type_edges = performance(FUN = median, "days"))
+ 
+ # All invoices not removed
+ not_removed <- invoices %>%
+ filter_activity_presence(activities = 'Removal',
+ method = "none")
+ 
+ #wo_removed <- not_removed %>% 
+ # filter_precedence(
+ # antecedents ="Creation", 
+ # consequents = "Transfer completed", 
+ # precedence_type ="directly_follows", 
+ # filter_method ="none"
+ # )
+ 
+ #process_map(wo_removed)
+ # Ready to transfer and Removal ones
+ #ReadyToRemoval<-invoices %>% 
+ # filter_precedence(
+ # antecedents ="Ready for transfer", 
+ # consequents = "Removal", 
+ # precedence_type ="directly_follows", 
+ # filter_method ="one_of"
+ # )
+ #ReadyToRemoval%>% process_map()
+ ## table(ReadyToRemoval$InvoiceID)
+ # Cration to Ready to transfer and Removal
+ #CreationToReadyToRemoval<-ReadyToRemoval %>% 
+ # filter_precedence(
+ # antecedents ="Creation", 
+ # consequents = "Ready for transfer", 
+ # precedence_type ="directly_follows", 
+ # filter_method ="one_of"
+ # )
+ #####################################################
+ ##################### touchless #####################
+ ######################################################
+ invoices %>% 
+ filter(`Company code`== 1001) %>% 
+ filter_activity_presence(activities = 'Removal',method = "none") %>%
+ filter_resource(NA) %>%
+ filter( InvoiceType=="Vend.Inv.with PO" & CycleTime < 1)%>%
+ process_map(
+ type_nodes = frequency(),
+ type_edges = performance(FUN = median, "days")
+ )
+ 
+prep<- invoices %>% 
+ filter(`Company code`== 1001) %>% 
+ filter_activity_presence(activities = 'Removal',method = "none") %>%
+ filter_activity_presence(activities = 'Approval',method = "none") %>%
+ filter( InvoiceType=="Vend.Inv.with PO" & CycleTime >= 1)
+# %>%
+ process_map(
+ type_nodes = frequency(),
+ type_edges = performance(FUN = median, "days")
+ )
+ ###############################################################
+ ##############################################################
+
